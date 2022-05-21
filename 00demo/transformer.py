@@ -5,8 +5,8 @@ Author: HCQ
 Company(School): UCAS
 Email: 1756260160@qq.com
 Date: 2022-05-21 10:42:34
-LastEditTime: 2022-05-21 13:11:14
-FilePath: /Transformer/transformer/transformer.py
+LastEditTime: 2022-05-21 13:16:12
+FilePath: /Transformer/00demo/transformer.py
 '''
 
 
@@ -21,27 +21,28 @@ import numpy as np
 import torch.nn as nn
 from datasets import *
 
-d_model = 512   # 字 Embedding 的维度
+d_model = 512   # 字 Embedding 的维度 每个字有512维向量
 d_ff = 2048     # 前向传播隐藏层维度
 d_k = d_v = 64  # K(=Q), V的维度
 n_layers = 6    # 有多少个encoder和decoder
 n_heads = 8     # Multi-Head Attention设置为8
 
-
+# 位置编码（class Encoder(nn.Module):的初始化调用）
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
+        self.dropout = nn.Dropout(p=dropout) # nn.Dropout(p = 0.3) # 表示每个神经元有0.3的可能性不被激活
         pos_table = np.array([
             [pos / np.power(10000, 2 * i / d_model) for i in range(d_model)]
             if pos != 0 else np.zeros(d_model) for pos in range(max_len)])
         pos_table[1:, 0::2] = np.sin(pos_table[1:, 0::2])           # 字嵌入维度为偶数时
         pos_table[1:, 1::2] = np.cos(pos_table[1:, 1::2])           # 字嵌入维度为奇数时
-        self.pos_table = torch.FloatTensor(pos_table).cuda()        # enc_inputs: [seq_len, d_model]
+        #
+        self.pos_table = torch.FloatTensor(pos_table).cuda()        # enc_inputs: [seq_len, d_model] （5000， 512）
 
     def forward(self, enc_inputs):                                  # enc_inputs: [batch_size, seq_len, d_model]
-        enc_inputs += self.pos_table[:enc_inputs.size(1), :]
-        return self.dropout(enc_inputs.cuda())
+        enc_inputs += self.pos_table[:enc_inputs.size(1), :] # torch.Size([5, 512]) 生成位置信息矩阵pos_table，直接加上输入的enc_inputs上，得到带有位置信息的字向量(广播机制)
+        return self.dropout(enc_inputs.cuda()) # Dropout的是为了防止过拟合而设置
 
 
 def get_attn_pad_mask(seq_q, seq_k):                                # seq_q: [batch_size, seq_len] ,seq_k: [batch_size, seq_len]
@@ -143,15 +144,16 @@ class EncoderLayer(nn.Module):
         enc_outputs = self.pos_ffn(enc_outputs)                         # enc_outputs: [batch_size, src_len, d_model]
         return enc_outputs, attn
 
+# Step1: 编码
 class Encoder(nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
-        self.src_emb = nn.Embedding(src_vocab_size, d_model)                     # 把字转换字向量
-        self.pos_emb = PositionalEncoding(d_model)                               # 加入位置信息
+        self.src_emb = nn.Embedding(src_vocab_size, d_model)                     # 把字转换字向量（9， 512）  # d_model = 512   # 字 Embedding 的维度
+        self.pos_emb = PositionalEncoding(d_model)                               # 加入位置信息！位置编码
         self.layers = nn.ModuleList([EncoderLayer() for _ in range(n_layers)])
 
     def forward(self, enc_inputs):                                               # enc_inputs: [batch_size, src_len]
-        enc_outputs = self.src_emb(enc_inputs)                                   # enc_outputs: [batch_size, src_len, d_model]
+        enc_outputs = self.src_emb(enc_inputs)                                   # enc_outputs: [batch_size2, src_len5, d_model512]
         enc_outputs = self.pos_emb(enc_outputs)                                  # enc_outputs: [batch_size, src_len, d_model]
         enc_self_attn_mask = get_attn_pad_mask(enc_inputs, enc_inputs)           # enc_self_attn_mask: [batch_size, src_len, src_len]
         enc_self_attns = []
@@ -184,7 +186,7 @@ class DecoderLayer(nn.Module):
         dec_outputs = self.pos_ffn(dec_outputs)                                 # dec_outputs: [batch_size, tgt_len, d_model]
         return dec_outputs, dec_self_attn, dec_enc_attn
 
-
+# Step2:解码
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
@@ -212,7 +214,7 @@ class Decoder(nn.Module):
             dec_enc_attns.append(dec_enc_attn)
         return dec_outputs, dec_self_attns, dec_enc_attns
 
-
+# main====================================================
 class Transformer(nn.Module):
     def __init__(self):
         super(Transformer, self).__init__()
