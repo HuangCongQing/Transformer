@@ -28,7 +28,7 @@ def get_attn_subsequent_mask(seq):
     return subsequence_mask  # [batch_size, tgt_len, tgt_len]
 
 
-## 7. ScaledDotProductAttention
+## 7. ScaledDotProductAttention 实现的softmax(QK^(T)/sqrt(d_k))V
 class ScaledDotProductAttention(nn.Module):
     def __init__(self):
         super(ScaledDotProductAttention, self).__init__()
@@ -41,11 +41,11 @@ class ScaledDotProductAttention(nn.Module):
         ## 然后关键词地方来了，下面这个就是用到了我们之前重点讲的attn_mask，把被mask的地方置为无限小，softmax之后基本就是0，对q的单词不起作用
         scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
         attn = nn.Softmax(dim=-1)(scores)
-        context = torch.matmul(attn, V)
+        context = torch.matmul(attn, V) # softmax(QK^(T)/sqrt(d_k))V
         return context, attn
 
 
-## 6. MultiHeadAttention
+## 6. MultiHeadAttention多头注意力机制
 class MultiHeadAttention(nn.Module):
     def __init__(self):
         super(MultiHeadAttention, self).__init__()
@@ -53,9 +53,9 @@ class MultiHeadAttention(nn.Module):
         self.W_Q = nn.Linear(d_model, d_k * n_heads)
         self.W_K = nn.Linear(d_model, d_k * n_heads)
         self.W_V = nn.Linear(d_model, d_v * n_heads)
-        self.linear = nn.Linear(n_heads * d_v, d_model)
+        self.linear = nn.Linear(n_heads * d_v, d_model) #
         self.layer_norm = nn.LayerNorm(d_model)
-
+    # 输入是最原始的QKV
     def forward(self, Q, K, V, attn_mask):
 
         ## 这个多头分为这几个步骤，首先映射分头，然后计算atten_scores，然后计算atten_value;
@@ -74,7 +74,7 @@ class MultiHeadAttention(nn.Module):
 
         ##然后我们计算 ScaledDotProductAttention 这个函数，去7.看一下
         ## 得到的结果有两个：context: [batch_size x n_heads x len_q x d_v], attn: [batch_size x n_heads x len_q x len_k]
-        context, attn = ScaledDotProductAttention()(q_s, k_s, v_s, attn_mask)
+        context, attn = ScaledDotProductAttention()(q_s, k_s, v_s, attn_mask) # 实现的softmax(QK^(T)/sqrt(d_k))V
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, n_heads * d_v) # context: [batch_size x len_q x n_heads * d_v]
         output = self.linear(context)
         return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model]
@@ -101,7 +101,7 @@ class PoswiseFeedForwardNet(nn.Module):
 ## 比如说，我现在的句子长度是5，在后面注意力机制的部分，我们在计算出来QK转置除以根号之后，softmax之前，我们得到的形状
 ## len_input * len*input  代表每个单词对其余包含自己的单词的影响力
 
-## 所以这里我需要有一个同等大小形状的矩阵，告诉我哪个位置是PAD部分，之后在计算计算softmax之前会把这里置为无穷大；
+## 所以这里我需要有一个同等大小形状的矩阵，告诉我哪个位置是PAD部分，之后在计算softmax之前会把这里置为无穷大；
 
 ## 一定需要注意的是这里得到的矩阵形状是batch_size x len_q x len_k，我们是对k中的pad符号进行标识，并没有对k中的做标识，因为没必要
 
@@ -110,9 +110,9 @@ class PoswiseFeedForwardNet(nn.Module):
 def get_attn_pad_mask(seq_q, seq_k):
     batch_size, len_q = seq_q.size()
     batch_size, len_k = seq_k.size()
-    # eq(zero) is PAD token
+    # eq(zero) is PAD token 判断 输入那些含有P(=0),用1标记 ,[batch_size, 1, len_k][2,1,5]
     pad_attn_mask = seq_k.data.eq(0).unsqueeze(1)  # batch_size x 1 x len_k, one is masking
-    return pad_attn_mask.expand(batch_size, len_q, len_k)  # batch_size x len_q x len_k
+    return pad_attn_mask.expand(batch_size, len_q, len_k)  # batch_size x len_q(重复次数) x len_k
 
 
 ## 3. PositionalEncoding 代码实现
@@ -126,11 +126,11 @@ class PositionalEncoding(nn.Module):
         ##假设我的demodel是512，2i那个符号中i从0取到了255，那么2i对应取值就是0,2,4...510
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)## 这里需要注意的是pe[:, 0::2]这个用法，就是从0开始到最后面，补长为2，其实代表的就是偶数位置
-        pe[:, 1::2] = torch.cos(position * div_term)##这里需要注意的是pe[:, 1::2]这个用法，就是从1开始到最后面，补长为2，其实代表的就是奇数位置
+        pe = torch.zeros(max_len, d_model) # [5000. 512]
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)# [5000, 1]
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)) # torch.arange(0, d_model, 2) 每步为2
+        pe[:, 0::2] = torch.sin(position * div_term)## 这里需要注意的是pe[:, 0::2]这个用法，就是从0开始到最后面，步长为2，其实代表的就是偶数位置
+        pe[:, 1::2] = torch.cos(position * div_term)##这里需要注意的是pe[:, 1::2]这个用法，就是从1开始到最后面，步长为2，其实代表的就是奇数位置
         ## 上面代码获取之后得到的pe:[max_len*d_model]
 
         ## 下面这个代码之后，我们得到的pe形状是：[max_len*1*d_model]
@@ -150,8 +150,8 @@ class PositionalEncoding(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self):
         super(EncoderLayer, self).__init__()
-        self.enc_self_attn = MultiHeadAttention()
-        self.pos_ffn = PoswiseFeedForwardNet()
+        self.enc_self_attn = MultiHeadAttention() # 多头注意力机制
+        self.pos_ffn = PoswiseFeedForwardNet() # 前馈神经网络
 
     def forward(self, enc_inputs, enc_self_attn_mask):
         ## 下面这个就是做自注意力层，输入是enc_inputs，形状是[batch_size x seq_len_q x d_model] 需要注意的是最初始的QKV矩阵是等同于这个输入的，去看一下enc_self_attn函数 6.
@@ -191,9 +191,9 @@ class Encoder(nn.Module):
 class DecoderLayer(nn.Module):
     def __init__(self):
         super(DecoderLayer, self).__init__()
-        self.dec_self_attn = MultiHeadAttention()
-        self.dec_enc_attn = MultiHeadAttention()
-        self.pos_ffn = PoswiseFeedForwardNet()
+        self.dec_self_attn = MultiHeadAttention() # 自注意力
+        self.dec_enc_attn = MultiHeadAttention() # 交互注意力层
+        self.pos_ffn = PoswiseFeedForwardNet() # 前馈神经网络
 
     def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
         dec_outputs, dec_self_attn = self.dec_self_attn(dec_inputs, dec_inputs, dec_inputs, dec_self_attn_mask)
@@ -249,8 +249,10 @@ class Transformer(nn.Module):
         ## enc_outputs就是主要的输出，enc_self_attns这里没记错的是QK转置相乘之后softmax之后的矩阵值，代表的是每个单词和其他单词相关性；
         enc_outputs, enc_self_attns = self.encoder(enc_inputs)
 
-        ## dec_outputs 是decoder主要输出，用于后续的linear映射； dec_self_attns类比于enc_self_attns 是查看每个单词对decoder中输入的其余单词的相关性；dec_enc_attns是decoder中每个单词对encoder中每个单词的相关性；
-        dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs)
+        ## dec_outputs 是decoder主要输出，用于后续的linear映射；
+        # dec_self_attns类比于enc_self_attns 是查看每个单词对decoder中输入的其余单词的相关性；
+        # iec_enc_attns是decoder中每个单词对encoder中每个单词的相关性；
+        dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs) # 重点是编码的input和解码的output
 
         ## dec_outputs做映射到词表大小
         dec_logits = self.projection(dec_outputs) # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
