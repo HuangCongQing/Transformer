@@ -36,11 +36,11 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, Q, K, V, attn_mask):
         ## 输入进来的维度分别是 [batch_size x n_heads x len_q x d_k]  K： [batch_size x n_heads x len_k x d_k]  V: [batch_size x n_heads x len_k x d_v]
         ##首先经过matmul函数得到的scores形状是 : [batch_size x n_heads x len_q x len_k]
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k)
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) #
 
         ## 然后关键词地方来了，下面这个就是用到了我们之前重点讲的attn_mask，把被mask的地方置为无限小，softmax之后基本就是0，对q的单词不起作用
-        scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
-        attn = nn.Softmax(dim=-1)(scores)
+        scores.masked_fill_(attn_mask, -1e9) # mask中取值为True位置对应于self的相应位置用value填充。 Fills elements of self tensor with value where mask is one.
+        attn = nn.Softmax(dim=-1)(scores) # softmax(QK^(T)/sqrt(d_k))
         context = torch.matmul(attn, V) # softmax(QK^(T)/sqrt(d_k))V
         return context, attn
 
@@ -50,12 +50,12 @@ class MultiHeadAttention(nn.Module):
     def __init__(self):
         super(MultiHeadAttention, self).__init__()
         ## 输入进来的QKV是相等的，我们会使用映射linear做一个映射得到参数矩阵Wq, Wk,Wv
-        self.W_Q = nn.Linear(d_model, d_k * n_heads)
+        self.W_Q = nn.Linear(d_model, d_k * n_heads) # 权重
         self.W_K = nn.Linear(d_model, d_k * n_heads)
         self.W_V = nn.Linear(d_model, d_v * n_heads)
         self.linear = nn.Linear(n_heads * d_v, d_model) #
         self.layer_norm = nn.LayerNorm(d_model)
-    # 输入是最原始的QKV
+    # Encoder是输入是最原始的QKV
     def forward(self, Q, K, V, attn_mask):
 
         ## 这个多头分为这几个步骤，首先映射分头，然后计算atten_scores，然后计算atten_value;
@@ -69,14 +69,14 @@ class MultiHeadAttention(nn.Module):
         v_s = self.W_V(V).view(batch_size, -1, n_heads, d_v).transpose(1,2)  # v_s: [batch_size x n_heads x len_k x d_v]
 
         ## 输入进行的attn_mask形状是 batch_size x len_q x len_k，然后经过下面这个代码得到 新的attn_mask : [batch_size x n_heads x len_q x len_k]，就是把pad信息重复了n个头上
-        attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1)
+        attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1) # 在 0，2，3，4重复1次， 1维上重复8次
 
 
         ##然后我们计算 ScaledDotProductAttention 这个函数，去7.看一下
         ## 得到的结果有两个：context: [batch_size x n_heads x len_q x d_v], attn: [batch_size x n_heads x len_q x len_k]
         context, attn = ScaledDotProductAttention()(q_s, k_s, v_s, attn_mask) # 实现的softmax(QK^(T)/sqrt(d_k))V
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, n_heads * d_v) # context: [batch_size x len_q x n_heads * d_v]
-        output = self.linear(context)
+        output = self.linear(context) #
         return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model]
 
 
@@ -84,13 +84,13 @@ class MultiHeadAttention(nn.Module):
 class PoswiseFeedForwardNet(nn.Module):
     def __init__(self):
         super(PoswiseFeedForwardNet, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
-        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
+        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1) # d_model = 512  # Embedding Size
+        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1) #  d_ff = 2048  # FeedForward dimension
         self.layer_norm = nn.LayerNorm(d_model)
 
     def forward(self, inputs):
         residual = inputs # inputs : [batch_size, len_q, d_model]
-        output = nn.ReLU()(self.conv1(inputs.transpose(1, 2)))
+        output = nn.ReLU()(self.conv1(inputs.transpose(1, 2))) # FFN的加入引入了非线性(ReLu激活函数)，变换了attention output的空间,
         output = self.conv2(output).transpose(1, 2)
         return self.layer_norm(output + residual)
 
@@ -183,21 +183,21 @@ class Encoder(nn.Module):
         enc_self_attns = []
         for layer in self.layers:
             ## 去看EncoderLayer 层函数 5.
-            enc_outputs, enc_self_attn = layer(enc_outputs, enc_self_attn_mask)
-            enc_self_attns.append(enc_self_attn)
+            enc_outputs, enc_self_attn = layer(enc_outputs, enc_self_attn_mask) # EncoderLayer
+            enc_self_attns.append(enc_self_attn) # 把atten相加
         return enc_outputs, enc_self_attns
 
 ## 10.
 class DecoderLayer(nn.Module):
     def __init__(self):
         super(DecoderLayer, self).__init__()
-        self.dec_self_attn = MultiHeadAttention() # 自注意力
-        self.dec_enc_attn = MultiHeadAttention() # 交互注意力层
+        self.dec_self_attn = MultiHeadAttention() # 自注意力层
+        self.dec_enc_attn = MultiHeadAttention() # 交互注意力层（和自注意力层输入参数不同）
         self.pos_ffn = PoswiseFeedForwardNet() # 前馈神经网络
 
     def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
         dec_outputs, dec_self_attn = self.dec_self_attn(dec_inputs, dec_inputs, dec_inputs, dec_self_attn_mask)
-        dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_outputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
+        dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_outputs, enc_outputs, enc_outputs, dec_enc_attn_mask) # dec_outputs(Q)，enc_outputs(K，V)
         dec_outputs = self.pos_ffn(dec_outputs)
         return dec_outputs, dec_self_attn, dec_enc_attn
 
