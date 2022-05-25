@@ -4,7 +4,7 @@ Author: HCQ
 Company(School): UCAS
 Email: 1756260160@qq.com
 Date: 2022-05-21 13:09:59
-LastEditTime: 2022-05-21 13:18:21
+LastEditTime: 2022-05-21 22:39:59
 FilePath: /Transformer/00demo/main.py
 '''
 # Starting Reference: http://nlp.seas.harvard.edu/2018/04/03/attention.html#greedy-decoding
@@ -23,8 +23,8 @@ if __name__ == "__main__":
     optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.99)
 
     for epoch in range(50):
-        # loader有2个batch
-        for enc_inputs, dec_inputs, dec_outputs in loader:  # enc_inputs : [batch_size, src_len]
+        # loader有2个batch_size
+        for enc_inputs, dec_inputs, dec_outputs in loader:  # enc_inputs : [batch_size, src_len] 【 【
                                                             # dec_inputs : [batch_size, tgt_len]
                                                             # dec_outputs: [batch_size, tgt_len]
 
