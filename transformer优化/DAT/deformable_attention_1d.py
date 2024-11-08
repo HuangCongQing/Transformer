@@ -110,12 +110,12 @@ class DeformableAttention1D(nn.Module):
         assert offset_kernel_size >= downsample_factor, 'offset kernel size must be greater than or equal to the downsample factor'
         assert divisible_by(offset_kernel_size - downsample_factor, 2)
 
-        offset_groups = default(offset_groups, heads)
+        offset_groups = default(offset_groups, heads) # 使用8
         assert divisible_by(heads, offset_groups)
 
-        inner_dim = dim_head * heads
+        inner_dim = dim_head * heads # 64*8 = 512
         self.scale = dim_head ** -0.5
-        self.heads = heads
+        self.heads = heads # 8个head
         self.offset_groups = offset_groups
 
         offset_dims = inner_dim // offset_groups
@@ -125,8 +125,8 @@ class DeformableAttention1D(nn.Module):
         self.to_offsets = nn.Sequential(
             nn.Conv1d(offset_dims, offset_dims, offset_kernel_size, groups = offset_dims, stride = downsample_factor, padding = (offset_kernel_size - downsample_factor) // 2),
             nn.GELU(),
-            nn.Conv1d(offset_dims, 1, 1, bias = False),
-            Rearrange('b 1 n -> b n'),
+            nn.Conv1d(offset_dims, 1, 1, bias = False), # 输出Channel为1
+            Rearrange('b 1 n -> b n'), #  [B,C,H] shape改变
             nn.Tanh(),
             Scale(offset_scale)
         )
@@ -157,26 +157,26 @@ class DeformableAttention1D(nn.Module):
         # calculate offsets - offset MLP shared across all groups
         # 初始化一组均匀网格作为采样点的参考点 p(偏移量由 query 通过子网络产生)
         group = lambda t: rearrange(t, 'b (g d) n -> (b g) d n', g = self.offset_groups)
-
-        grouped_queries = group(q)
-        offsets = self.to_offsets(grouped_queries)
+        grouped_queries = group(q) # [1, 512, 512]-> [8, 64, 512] [B,C,H]
+        offsets = self.to_offsets(grouped_queries) # 输出channel为1 [8, 64, 512] ->  [8, 128]
 
         # calculate grid + offsets
         # 而后，将偏移量加到参考点上得到采样点坐标，使用双线性插值对原特征图进行采样：
-        grid = torch.arange(offsets.shape[-1], device = device)
+        grid = torch.arange(offsets.shape[-1], device = device) # [128](0,...,127)
         vgrid = grid + offsets
-        vgrid_scaled = normalize_grid(vgrid)
+        vgrid_scaled = normalize_grid(vgrid) # 归一化
 
+        # [1, 128, 512]  -> [8, 16, 128]
         kv_feats = grid_sample_1d(
-            group(x),
-            vgrid_scaled,
+            group(x), # [1, 128, 512]  -> [8, 16, 512]
+            vgrid_scaled, #  [8, 128]
         mode = 'bilinear', padding_mode = 'zeros', align_corners = False)
 
-        kv_feats = rearrange(kv_feats, '(b g) d n -> b (g d) n', b = b)
+        kv_feats = rearrange(kv_feats, '(b g) d n -> b (g d) n', b = b) # [8, 16, 128] ->  [1, 128, 128]
 
         # derive key / values
         # 在此基础上，变形后的 key 和 value 分别通过如下公式得到：
-        k, v = self.to_k(kv_feats), self.to_v(kv_feats)
+        k, v = self.to_k(kv_feats), self.to_v(kv_feats) ## (1, 512, 128)
 
         # scale queries
         q = q * self.scale
@@ -184,7 +184,7 @@ class DeformableAttention1D(nn.Module):
         # split out heads
         q, k, v = map(lambda t: rearrange(t, 'b (h d) n -> b h n d', h = heads), (q, k, v))
 
-        # query / key similarity
+        # Q*K: query / key similarity
         sim = einsum('b h i d, b h j d -> b h i j', q, k)
 
         # relative positional bias
@@ -192,7 +192,7 @@ class DeformableAttention1D(nn.Module):
         seq_scaled = normalize_grid(seq_range, dim = 0)
         # continuous positional bias from SwinV2
         rel_pos_bias = self.rel_pos_bias(seq_scaled, vgrid_scaled)
-        sim = sim + rel_pos_bias
+        sim = sim + rel_pos_bias #最终加上这个偏移！！！<<<<<<
 
         # numerical stability
         sim = sim - sim.amax(dim = -1, keepdim = True).detach()
