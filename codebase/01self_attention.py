@@ -4,7 +4,7 @@ Author: HCQ
 Company(School): UCAS
 Email: 1756260160@qq.com
 Date: 2024-12-11 23:01:41
-LastEditTime: 2024-12-11 23:03:06
+LastEditTime: 2024-12-12 11:11:56
 FilePath: /Transformer/codebase/01self_attention.py
 '''
 import torch
@@ -31,8 +31,9 @@ class Self_Attention(nn.Module):
 
         return x
 
-att = Self_Attention(dim=2, dk=2, dv=3)
-x = torch.rand((1, 4, 2))  # 1 是batch_size 4是token数量 2是每个token的长度
-print(x)
-output = att(x)
+if __name__ == "__main__":
+    att = Self_Attention(dim=2, dk=2, dv=3)
+    x = torch.rand((1, 196, 32))  # 1 是batch_size 196是token数量 32是每个token的长度
+    print(x)
+    output = att(x)
 
