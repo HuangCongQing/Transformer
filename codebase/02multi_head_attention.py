@@ -4,7 +4,7 @@ Author: HCQ
 Company(School): UCAS
 Email: 1756260160@qq.com
 Date: 2024-12-11 23:01:53
-LastEditTime: 2024-12-12 15:50:54
+LastEditTime: 2024-12-13 13:09:39
 FilePath: /Transformer/codebase/02multi_head_attention.py
 '''
 
@@ -70,7 +70,7 @@ class Attention_v2(nn.Module):
         self.scale = self.head_dim ** -0.5 
 
         # 初始化Query、Key、Value的权重矩阵
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias) #  Linear线性变换中是否添加bias偏置
         self.attn_drop = nn.Dropout(attn_drop) # dropout概率
 
         # 初始化输出的权重矩阵
@@ -80,7 +80,8 @@ class Attention_v2(nn.Module):
     # 利用公式对Q,K进行计算，得到对应的权值信息；在经过softmax进行处理，得到归一化后的权值信息。将其与V的信息进行对应加权操作，得到最终的结果。
     # detail: https://www.yuque.com/huangzhongqing/transformer/of62gbn5fukx72wu#TvILf
     def forward(self, x):
-        if len(x.shape) == 4:
+        shape = x.shape
+        if len(shape) == 4:
             B, C, H, W = x.shape
             N = H * W
             # x = torch.flatten(x, start_dim=2).transpose(-2, -1) # (B, N, C)
@@ -107,7 +108,7 @@ class Attention_v2(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        if len(x.shape) == 4:
+        if len(shape) == 4:
             x = x.transpose(-2, -1).reshape(B, C, H, W)
 
         return x
@@ -115,6 +116,7 @@ class Attention_v2(nn.Module):
 if __name__ == "__main__":
     # attn = Attention_v1(dim=2, dk=2, dv=3)
     attn = Attention_v2(dim=32)
-    x = torch.rand((1, 196, 32))  # 1 是batch_size 196是token数量(HW=16) 32是每个token的长度
+    # x = torch.rand((1, 196, 32))# (BNC)  # 1 是batch_size 196是token数量(HW=16) 32是每个token的长度
+    x = torch.rand((1, 32, 16, 16))# (BCHW)  # 1 是batch_size 196是token数量(HW=16) 32是每个token的长度
     output = attn(x)
-    print(x.shape)
+    print(output.shape)
