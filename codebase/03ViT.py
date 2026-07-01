@@ -424,13 +424,16 @@ def vit_huge_patch14_224_in21k(num_classes: int = 21843, has_logits: bool = True
 
 
 if __name__ == "__main__":
-    model = VisionTransformer(img_size=224,
+    has_logits = True
+    num_classes = 10 # 10000
+    atten = VisionTransformer(img_size=224,
                               patch_size=14,
                               embed_dim=1280,
                               depth=32,
                               num_heads=16,
                               representation_size=1280 if has_logits else None,
                               num_classes=num_classes)
-    x = torch.rand((1, 32, 16, 16))# (BCHW)  # 1 是batch_size 196是token数量(HW=16) 32是每个token的长度
-    output = attn(x)
-    print(output.shape)
+    x = torch.rand((1, 3, 224, 224))  # (B, C, H, W)
+    output = atten(x)
+    print(output)
+    print(output.shape) # torch.Size([1, 1000]) 分类
